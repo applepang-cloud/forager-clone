@@ -7,8 +7,14 @@ reusing the original project's sprite art (BMP → PNG converted).
 ## Gameplay
 - **Move**: WASD / arrow keys, or the on-screen joystick (mobile).
 - **Dash**: Space (or the green button) — costs stamina.
-- **Attack / Harvest**: J / K / mouse-click, or the red button. Hits the nearest
-  resource and any enemies in range.
+- **Weapons**: keys **1/2/3** (or the top quickslots) switch **pickaxe** (mines
+  fast), **sword** (fights hard), **bow** (ranged). **Hold** J / click / the red
+  button to **charge the bow**, release to fire an arrow (damage scales with charge).
+- **Attack / Harvest**: hits the nearest resource and any enemies in range.
+- **Sound**: SFX for hits, pickups, building, level-up, etc. Looping BGM with a
+  mute toggle (top-right). Audio starts on your first interaction (browser policy).
+- **Save**: progress autosaves to local storage and reloads automatically; dying
+  starts a fresh game.
 - Harvest **trees → wood**, **rocks → stone (+ coal/iron)**, **berry bushes → berry**.
 - **Stamina** drains on actions; when empty you lose a heart and it refills.
 - **XP** from harvesting & kills; leveling up raises max HP/stamina and fully heals.

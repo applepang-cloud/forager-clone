@@ -7,8 +7,11 @@ import 'package:forager_clone/game/forager_game.dart';
 import 'package:forager_clone/game/enemy.dart';
 import 'package:forager_clone/game/animal.dart';
 import 'package:forager_clone/game/building.dart';
+import 'package:forager_clone/game/audio.dart';
 
 void main() {
+  Audio.testMode = true;
+
   testWidgets('capture a rendered frame to PNG', (tester) async {
     final game = ForagerGame();
     await tester.runAsync(() async {

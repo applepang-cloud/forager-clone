@@ -59,8 +59,8 @@ class ResourceNode extends PositionComponent {
   }
 
   /// returns true if destroyed
-  bool hit() {
-    hp--;
+  bool hit([int dmg = 1]) {
+    hp -= dmg;
     shake = 0.18;
     return hp <= 0;
   }

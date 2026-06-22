@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../game/audio.dart';
 import '../game/building.dart';
 import '../game/forager_game.dart';
+import '../game/game_state.dart';
 
 class Hud extends StatelessWidget {
   final ForagerGame game;
@@ -105,16 +107,49 @@ class Hud extends StatelessWidget {
               bottom: 8,
               child: Center(child: _buildMenu()),
             ),
+            // weapon quickslots top-center
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 8,
+              child: Center(child: _weaponSlots()),
+            ),
+            // music toggle top-right (below coins)
+            Positioned(
+              top: 40,
+              right: 12,
+              child: GestureDetector(
+                onTap: () {
+                  Audio.toggleMusic();
+                  s.touch();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xAA000000),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Audio.musicOn ? Icons.music_note : Icons.music_off,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
             // controls hint
             const Positioned(
-              top: 70,
-              right: 12,
-              child: Text(
-                'WASD move · Space dash · J/Click attack',
-                style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10,
-                    shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
+              top: 58,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Text(
+                  'WASD move · Space dash · 1/2/3 weapon · hold J/Click to charge bow',
+                  style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
+                ),
               ),
             ),
             if (s.gameOver) _gameOver(),
@@ -161,6 +196,59 @@ class Hud extends StatelessWidget {
                         filterQuality: FilterQuality.none),
                     Text(' ${p.price}', style: _txt(11, FontWeight.w600)),
                   ]),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _weaponSlots() {
+    const defs = [
+      [Weapon.pickaxe, 'pickaxe', '1'],
+      [Weapon.sword, 'sword', '2'],
+      [Weapon.bow, 'bow', '3'],
+    ];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0x66000000),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final d in defs)
+            GestureDetector(
+              onTap: () => game.state.setWeapon(d[0] as Weapon),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: game.state.weapon == d[0]
+                      ? const Color(0xCCf2c14e)
+                      : const Color(0x55ffffff),
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(
+                    color: game.state.weapon == d[0]
+                        ? Colors.white
+                        : Colors.transparent,
+                    width: 2,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    Image.asset('assets/images/item/${d[1]}.png',
+                        width: 30,
+                        height: 30,
+                        filterQuality: FilterQuality.none),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Text(d[2] as String, style: _txt(9, FontWeight.bold)),
+                    ),
+                  ],
                 ),
               ),
             ),

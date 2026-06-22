@@ -7,12 +7,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'animal.dart';
+import 'arrow.dart';
+import 'audio.dart';
 import 'building.dart';
 import 'drop.dart';
 import 'enemy.dart';
 import 'game_state.dart';
 import 'player.dart';
 import 'resource_node.dart';
+import 'save_manager.dart';
 import 'tile_map.dart';
 import 'world_data.dart';
 
@@ -38,13 +41,21 @@ class ForagerGame extends FlameGame
   double hitInvuln = 0;
   double enemySpawnTimer = 3;
   double animalSpawnTimer = 10;
+  double saveTimer = 5;
   Vector2 _keyInput = Vector2.zero();
+
+  // bow charging
+  bool _charging = false;
+  double _charge = 0;
+  bool _attackKeyHeld = false;
+  bool _audioStarted = false;
 
   @override
   Color backgroundColor() => const Color(0xFF3aa6e8); // water
 
   @override
   Future<void> onLoad() async {
+    await Audio.preload();
     tileMap = TileMap(state);
     world.add(tileMap);
 
@@ -54,11 +65,32 @@ class ForagerGame extends FlameGame
     camera.viewfinder.visibleGameSize = Vector2(520, 340);
     camera.follow(player);
 
-    // initial resources + animals on home
-    spawnResourcesForPlot(homePlot, density: 0.16);
-    spawnAnimalsForPlot(homePlot, 3);
+    // restore a saved game if present
+    final saved = await SaveManager.load();
+    if (saved != null) {
+      state.fromJson(saved);
+      _loadBuildings(saved);
+    }
+    populateOwnedPlots();
 
     _addControls();
+  }
+
+  void populateOwnedPlots() {
+    for (final p in plots) {
+      if (!state.ownedPlots.contains(p.id)) continue;
+      spawnResourcesForPlot(p, density: p.id == 'home' ? 0.16 : 0.14);
+      spawnAnimalsForPlot(p, p.id == 'home' ? 3 : 2);
+    }
+  }
+
+  void _loadBuildings(Map<String, dynamic> saved) {
+    for (final b in (saved['buildings'] as List? ?? [])) {
+      final m = b as Map;
+      final t = BuildingType.values[(m['t'] as num).toInt()];
+      world.add(Building(
+          t, Vector2((m['x'] as num).toDouble(), (m['y'] as num).toDouble())));
+    }
   }
 
   void _addControls() {
@@ -77,7 +109,8 @@ class ForagerGame extends FlameGame
       buttonDown: CircleComponent(
           radius: 34, paint: Paint()..color = const Color(0xcce85a3a)),
       margin: const EdgeInsets.only(right: 28, bottom: 40),
-      onPressed: doAttack,
+      onPressed: onAttackStart,
+      onReleased: onAttackRelease,
     );
     camera.viewport.add(atkBtn);
 
@@ -158,10 +191,54 @@ class ForagerGame extends FlameGame
   int get _enemyCount => world.children.whereType<Enemy>().length;
 
   // ---- combat / interaction ----
-  void doAttack() {
+  void _kickAudio() {
+    if (_audioStarted) return;
+    _audioStarted = true;
+    Audio.startBgm();
+  }
+
+  void onAttackStart() {
+    _kickAudio();
+    if (state.gameOver) return;
+    if (state.weapon == Weapon.bow) {
+      _charging = true;
+      _charge = 0;
+    } else {
+      meleeSwing();
+    }
+  }
+
+  void onAttackRelease() {
+    if (state.weapon == Weapon.bow && _charging) {
+      fireArrow(_charge);
+    }
+    _charging = false;
+  }
+
+  void fireArrow(double charge) {
+    if (attackCooldown > 0 || state.gameOver) return;
+    attackCooldown = 0.4;
+    player.attack();
+    final dmg = 1 + (charge * 4).round(); // 1..5
+    spendStamina(3 + charge * 6);
+    final dir = player.facing.length2 > 0
+        ? player.facing.normalized()
+        : Vector2(0, 1);
+    world.add(PlayerArrow(player.position - Vector2(0, 14), dir * 420, dmg));
+    Audio.play('shoot.mp3', volume: 0.5);
+  }
+
+  void meleeSwing() {
     if (attackCooldown > 0 || state.gameOver) return;
     attackCooldown = 0.32;
     player.attack();
+    Audio.play('hit.mp3', volume: 0.4);
+
+    // weapon profile
+    final isSword = state.weapon == Weapon.sword;
+    final resourceDmg = isSword ? 1 : 2; // pickaxe mines faster
+    final enemyDmg = isSword ? 4 : 1; // sword fights better
+    final staminaCost = isSword ? 4.0 : 6.0;
 
     final center = player.position - Vector2(0, 14);
     const reach = 62.0;
@@ -177,63 +254,71 @@ class ForagerGame extends FlameGame
       }
     }
     if (nearest != null) {
-      spendStamina(6);
-      if (nearest.hit()) {
-        final cfg = nearest.cfg;
-        final count = nearest.rollDropCount();
-        for (int i = 0; i < count; i++) {
-          world.add(DropItem(cfg.drop, nearest.position,
-              () => player.position, _collect));
-        }
-        // bonus rare drops from rocks
-        if (nearest.type == ResourceType.rock && _rng.nextDouble() < 0.3) {
-          world.add(DropItem(_rng.nextBool() ? 'coal' : 'iron_ore',
-              nearest.position, () => player.position, _collect));
-        }
-        gainXp(cfg.xp);
-        _respawns.add(_Respawn(14, nearest.type, nearest.position.clone()));
-        nearest.removeFromParent();
+      spendStamina(staminaCost);
+      if (nearest.hit(resourceDmg)) {
+        harvestResource(nearest);
       }
     }
 
     // hit enemies in radius
     for (final e in world.children.whereType<Enemy>()) {
       if (e.position.distanceTo(center) < reach + 6) {
-        spendStamina(2);
-        e.takeHit(2, player.position);
+        e.takeHit(enemyDmg, player.position);
       }
     }
 
     // harvest animals in radius
     for (final a in world.children.whereType<Animal>().toList()) {
       if (a.position.distanceTo(center) < reach) {
-        spendStamina(4);
-        if (a.takeHit()) {
-          for (final id in a.cfg.drops) {
-            world.add(
-                DropItem(id, a.position, () => player.position, _collect));
-          }
-          gainXp(a.cfg.xp);
-          a.removeFromParent();
-        }
-        break; // only the nearest-ish one per swing
+        harvestAnimal(a);
+        break;
       }
+    }
+  }
+
+  void harvestResource(ResourceNode node) {
+    final cfg = node.cfg;
+    final count = node.rollDropCount();
+    for (int i = 0; i < count; i++) {
+      world.add(
+          DropItem(cfg.drop, node.position, () => player.position, _collect));
+    }
+    if (node.type == ResourceType.rock && _rng.nextDouble() < 0.3) {
+      world.add(DropItem(_rng.nextBool() ? 'coal' : 'iron_ore', node.position,
+          () => player.position, _collect));
+    }
+    gainXp(cfg.xp);
+    Audio.play('harvest.mp3', volume: 0.5);
+    _respawns.add(_Respawn(14, node.type, node.position.clone()));
+    node.removeFromParent();
+  }
+
+  void harvestAnimal(Animal a) {
+    if (a.takeHit()) {
+      for (final id in a.cfg.drops) {
+        world.add(DropItem(id, a.position, () => player.position, _collect));
+      }
+      gainXp(a.cfg.xp);
+      Audio.play('die.mp3', volume: 0.4);
+      a.removeFromParent();
     }
   }
 
   void _collect(String id) {
     state.addItem(id, 1);
+    Audio.play('pickup.mp3', volume: 0.35);
   }
 
   void gainXp(int n) {
     state.addXp(n, () {
-      // level up: clear nearby enemies briefly? just heal (handled in state)
+      Audio.play('levelup.mp3', volume: 0.6);
     });
   }
 
   void onEnemyKilled(Enemy e) {
     state.addCoins(e.cfg.coins);
     gainXp(e.cfg.xp);
+    Audio.play('die.mp3', volume: 0.45);
     switch (e.kind) {
       case EnemyKind.bossSlime:
         // splits into a swarm of small slimes
@@ -264,9 +349,13 @@ class ForagerGame extends FlameGame
   }
 
   bool placeBuilding(BuildingType type) {
+    _kickAudio();
     if (state.gameOver) return false;
     final cfg = buildingConfigs[type]!;
-    if (!canAfford(cfg.cost)) return false;
+    if (!canAfford(cfg.cost)) {
+      Audio.play('nope.mp3', volume: 0.5);
+      return false;
+    }
     cfg.cost.forEach((k, v) => state.spend(k, v));
     // place one tile in front of the player, snapped to land
     final dir = player.facing.length2 > 0 ? player.facing : Vector2(0, 1);
@@ -275,6 +364,8 @@ class ForagerGame extends FlameGame
     final r = (spot.y / kTile).floor();
     if (!tileMap.isLand(c, r)) spot = player.position;
     world.add(Building(type, spot));
+    Audio.play('build.mp3', volume: 0.6);
+    _persist();
     return true;
   }
 
@@ -297,9 +388,11 @@ class ForagerGame extends FlameGame
   void damagePlayer(int n) {
     state.health -= n;
     player.hurt();
+    Audio.play('hurt.mp3', volume: 0.5);
     if (state.health <= 0) {
       state.health = 0;
       state.gameOver = true;
+      SaveManager.clear(); // death wipes the save -> fresh start on reload
     }
     state.touch();
   }
@@ -337,8 +430,10 @@ class ForagerGame extends FlameGame
     state.coins -= plot.price;
     state.ownedPlots.add(id);
     state.touch();
+    Audio.play('coin.mp3', volume: 0.6);
     spawnResourcesForPlot(plot, density: 0.14);
     spawnAnimalsForPlot(plot, 2);
+    _persist();
     // a few wandering enemies appear...
     for (int i = 0; i < 3; i++) {
       spawnEnemy();
@@ -377,9 +472,25 @@ class ForagerGame extends FlameGame
       c.removeFromParent();
     }
     _respawns.clear();
+    _charging = false;
     player.position = homePlot.centerWorld;
+    SaveManager.clear();
     spawnResourcesForPlot(homePlot, density: 0.16);
     spawnAnimalsForPlot(homePlot, 3);
+  }
+
+  // ---- persistence ----
+  Map<String, dynamic> buildSaveData() {
+    final data = state.toJson();
+    data['buildings'] = world.children.whereType<Building>().map((b) {
+      return {'t': b.type.index, 'x': b.position.x, 'y': b.position.y};
+    }).toList();
+    return data;
+  }
+
+  void _persist() {
+    if (state.gameOver) return;
+    SaveManager.save(buildSaveData());
   }
 
   // ---- loop ----
@@ -390,11 +501,19 @@ class ForagerGame extends FlameGame
 
     if (attackCooldown > 0) attackCooldown -= dt;
     if (hitInvuln > 0) hitInvuln -= dt;
+    if (_charging) _charge = (_charge + dt / 0.8).clamp(0, 1);
 
     // combined input: keyboard + joystick
     final jin = joystick.relativeDelta;
     final combined = _keyInput + Vector2(jin.x, jin.y);
     player.input = combined.length2 > 0 ? combined : Vector2.zero();
+
+    // autosave
+    saveTimer -= dt;
+    if (saveTimer <= 0) {
+      saveTimer = 5;
+      _persist();
+    }
 
     // respawns
     for (final rs in List<_Respawn>.from(_respawns)) {
@@ -429,7 +548,17 @@ class ForagerGame extends FlameGame
   // ---- input ----
   @override
   void onTapDown(TapDownInfo info) {
-    doAttack();
+    onAttackStart();
+  }
+
+  @override
+  void onTapUp(TapUpInfo info) {
+    onAttackRelease();
+  }
+
+  @override
+  void onTapCancel() {
+    onAttackRelease();
   }
 
   @override
@@ -446,12 +575,29 @@ class ForagerGame extends FlameGame
         keys.contains(LogicalKeyboardKey.arrowDown)) y += 1;
     _keyInput = Vector2(x, y);
 
+    final k = event.logicalKey;
     if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.space) {
+      if (k == LogicalKeyboardKey.space) {
         player.tryDash();
-      } else if (event.logicalKey == LogicalKeyboardKey.keyJ ||
-          event.logicalKey == LogicalKeyboardKey.keyK) {
-        doAttack();
+      } else if (k == LogicalKeyboardKey.digit1) {
+        state.setWeapon(Weapon.pickaxe);
+        _kickAudio();
+      } else if (k == LogicalKeyboardKey.digit2) {
+        state.setWeapon(Weapon.sword);
+        _kickAudio();
+      } else if (k == LogicalKeyboardKey.digit3) {
+        state.setWeapon(Weapon.bow);
+        _kickAudio();
+      } else if ((k == LogicalKeyboardKey.keyJ ||
+              k == LogicalKeyboardKey.keyK) &&
+          !_attackKeyHeld) {
+        _attackKeyHeld = true;
+        onAttackStart();
+      }
+    } else if (event is KeyUpEvent) {
+      if (k == LogicalKeyboardKey.keyJ || k == LogicalKeyboardKey.keyK) {
+        _attackKeyHeld = false;
+        onAttackRelease();
       }
     }
     return KeyEventResult.handled;

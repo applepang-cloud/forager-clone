@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+enum Weapon { pickaxe, sword, bow }
+
 /// All player-facing stats + inventory. HUD listens to this.
 class GameState extends ChangeNotifier {
   int maxHealth = 5;
@@ -14,6 +16,14 @@ class GameState extends ChangeNotifier {
 
   int coins = 0;
   bool gameOver = false;
+
+  Weapon weapon = Weapon.pickaxe;
+
+  void setWeapon(Weapon w) {
+    if (weapon == w) return;
+    weapon = w;
+    notifyListeners();
+  }
 
   // ordered inventory
   final List<String> itemOrder = [];
@@ -58,6 +68,47 @@ class GameState extends ChangeNotifier {
 
   void touch() => notifyListeners();
 
+  Map<String, dynamic> toJson() => {
+        'maxHealth': maxHealth,
+        'health': health,
+        'maxStamina': maxStamina,
+        'stamina': stamina,
+        'level': level,
+        'xp': xp,
+        'xpToNext': xpToNext,
+        'coins': coins,
+        'weapon': weapon.index,
+        'itemOrder': itemOrder,
+        'inventory': inventory,
+        'ownedPlots': ownedPlots.toList(),
+      };
+
+  void fromJson(Map<String, dynamic> j) {
+    maxHealth = j['maxHealth'] ?? maxHealth;
+    health = j['health'] ?? health;
+    maxStamina = (j['maxStamina'] ?? maxStamina).toDouble();
+    stamina = (j['stamina'] ?? stamina).toDouble();
+    level = j['level'] ?? level;
+    xp = j['xp'] ?? xp;
+    xpToNext = j['xpToNext'] ?? xpToNext;
+    coins = j['coins'] ?? coins;
+    weapon = Weapon.values[(j['weapon'] ?? 0).clamp(0, Weapon.values.length - 1)];
+    gameOver = false;
+    inventory.clear();
+    itemOrder.clear();
+    for (final id in (j['itemOrder'] as List? ?? [])) {
+      itemOrder.add(id as String);
+    }
+    (j['inventory'] as Map?)?.forEach((k, v) {
+      inventory[k as String] = (v as num).toInt();
+    });
+    ownedPlots
+      ..clear()
+      ..addAll(((j['ownedPlots'] as List?) ?? ['home']).cast<String>());
+    if (ownedPlots.isEmpty) ownedPlots.add('home');
+    notifyListeners();
+  }
+
   void reset() {
     maxHealth = 5;
     health = 5;
@@ -68,6 +119,7 @@ class GameState extends ChangeNotifier {
     xpToNext = 20;
     coins = 0;
     gameOver = false;
+    weapon = Weapon.pickaxe;
     inventory.clear();
     itemOrder.clear();
     ownedPlots
