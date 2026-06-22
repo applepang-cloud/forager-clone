@@ -117,5 +117,21 @@ void main() {
     outFile.writeAsBytesSync(img.encodePng(im));
     ok++;
   });
+
+  // Slice the grass sheet into standalone 56x56 tiles so GPU rendering can't
+  // bleed neighbouring decoration frames into a tile's edges.
+  final grassBmp = File('$srcRoot\\타일\\img_tile_plain.bmp');
+  if (grassBmp.existsSync()) {
+    final sheet = img.decodeBmp(grassBmp.readAsBytesSync())!
+        .convert(numChannels: 4);
+    for (var i = 0; i < 4; i++) {
+      final tile = img.copyCrop(sheet, x: i * 56, y: 0, width: 56, height: 56);
+      File('$dstRoot\\tiles\\grass_$i.png')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(img.encodePng(tile));
+    }
+    stdout.writeln('Sliced grass into 4 standalone tiles');
+  }
+
   stdout.writeln('Converted $ok, failed $fail');
 }
