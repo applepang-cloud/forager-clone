@@ -140,7 +140,7 @@ class Hud extends StatelessWidget {
         children: [
           Text('Buy Land', style: _txt(12, FontWeight.bold)),
           const SizedBox(height: 4),
-          for (final p in shop.take(4))
+          for (final p in shop.take(5))
             Padding(
               padding: const EdgeInsets.only(top: 3),
               child: GestureDetector(

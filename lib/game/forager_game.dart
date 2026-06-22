@@ -315,10 +315,20 @@ class ForagerGame extends FlameGame
     return false;
   }
 
-  List<Plot> purchasablePlots() => plots
-      .where((p) =>
-          !state.ownedPlots.contains(p.id) && isAdjacentToOwned(p))
-      .toList();
+  List<Plot> purchasablePlots() {
+    final list = plots
+        .where((p) => !state.ownedPlots.contains(p.id) && isAdjacentToOwned(p))
+        .toList();
+    // cheapest (nearest ring) first, then by distance to the player
+    list.sort((a, b) {
+      final byPrice = a.price.compareTo(b.price);
+      if (byPrice != 0) return byPrice;
+      return a.centerWorld
+          .distanceTo(player.position)
+          .compareTo(b.centerWorld.distanceTo(player.position));
+    });
+    return list;
+  }
 
   bool buyPlot(String id) {
     final plot = plots.firstWhere((p) => p.id == id);

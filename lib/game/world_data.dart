@@ -19,17 +19,51 @@ class Plot {
       );
 }
 
-// Home island plus 8 purchasable neighbours laid out in a ring.
-const homePlot = Plot('home', 0, 0, 12, 12, 0, 'Home');
+// A large expandable world: a 7x7 grid of plots. Home sits at the centre and
+// the surrounding plots are bought one ring at a time (price grows with the
+// distance from home).
+const int kGridRadius = 3; // -3..3 on each axis -> 7x7 = 49 plots
+const int kPlotSize = 14; // tiles per plot edge
 
-const plots = <Plot>[
-  homePlot,
-  Plot('east', 12, 0, 10, 12, 25, 'East Isle'),
-  Plot('west', -10, 0, 10, 12, 25, 'West Isle'),
-  Plot('north', 0, -10, 12, 10, 40, 'North Isle'),
-  Plot('south', 0, 12, 12, 10, 40, 'South Isle'),
-  Plot('northeast', 12, -10, 10, 10, 70, 'NE Isle'),
-  Plot('southeast', 12, 12, 10, 10, 70, 'SE Isle'),
-  Plot('northwest', -10, -10, 10, 10, 90, 'NW Isle'),
-  Plot('southwest', -10, 12, 10, 10, 90, 'SW Isle'),
-];
+int _ringPrice(int ring) {
+  switch (ring) {
+    case 1:
+      return 20;
+    case 2:
+      return 55;
+    case 3:
+      return 110;
+    default:
+      return 110 + (ring - 3) * 80;
+  }
+}
+
+String _dirLabel(int gx, int gy) {
+  final v = gy < 0 ? 'N' : (gy > 0 ? 'S' : '');
+  final h = gx < 0 ? 'W' : (gx > 0 ? 'E' : '');
+  final tag = '$v$h';
+  return tag.isEmpty ? 'Home' : 'Isle $tag';
+}
+
+List<Plot> _generatePlots() {
+  final list = <Plot>[];
+  for (int gy = -kGridRadius; gy <= kGridRadius; gy++) {
+    for (int gx = -kGridRadius; gx <= kGridRadius; gx++) {
+      final ring = gx.abs() > gy.abs() ? gx.abs() : gy.abs();
+      final id = gx == 0 && gy == 0 ? 'home' : 'g${gx}_$gy';
+      list.add(Plot(
+        id,
+        gx * kPlotSize,
+        gy * kPlotSize,
+        kPlotSize,
+        kPlotSize,
+        ring == 0 ? 0 : _ringPrice(ring),
+        _dirLabel(gx, gy),
+      ));
+    }
+  }
+  return list;
+}
+
+final List<Plot> plots = _generatePlots();
+final Plot homePlot = plots.firstWhere((p) => p.id == 'home');
